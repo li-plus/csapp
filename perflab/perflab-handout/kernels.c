@@ -47,7 +47,16 @@ void naive_rotate(int dim, pixel *src, pixel *dst)
 char rotate_descr[] = "rotate: Current working version";
 void rotate(int dim, pixel *src, pixel *dst) 
 {
-    naive_rotate(dim, src, dst);
+    const int block_size = 8;
+    for (int bi = 0; bi < dim; bi += block_size) {
+        for (int bj = 0; bj < dim; bj += block_size) {
+            for (int i = bi; i < bi + block_size; i++) {
+                for (int j = bj; j < bj + block_size; j++) {
+	                dst[RIDX(dim - 1 - j, i, dim)] = src[RIDX(i, j, dim)];
+                }
+            }
+        }
+    }
 }
 
 /*********************************************************************
@@ -156,6 +165,40 @@ void naive_smooth(int dim, pixel *src, pixel *dst)
 	    dst[RIDX(i, j, dim)] = avg(dim, i, j, src);
 }
 
+typedef struct {
+    unsigned red;
+    unsigned green;
+    unsigned blue;
+} pixel32_t;
+
+static void pixel32_init(pixel32_t *pixel32) {
+    pixel32->red = pixel32->green = pixel32->blue = 0;
+}
+
+static void pixel32_add_pixel(pixel32_t *self, const pixel *other) {
+    self->red += other->red;
+    self->green += other->green;
+    self->blue += other->blue;
+}
+
+static void pixel32_add(pixel32_t *self, const pixel32_t *other) {
+    self->red += other->red;
+    self->green += other->green;
+    self->blue += other->blue;
+}
+
+static void pixel32_sub(pixel32_t *self, const pixel32_t *other) {
+    self->red -= other->red;
+    self->green -= other->green;
+    self->blue -= other->blue;
+}
+
+static void pixel32_to_pixel(const pixel32_t *self, pixel *other, unsigned scale) {
+    other->red = self->red / scale;
+    other->green = self->green / scale;
+    other->blue = self->blue / scale;
+}
+
 /*
  * smooth - Your current working version of smooth. 
  * IMPORTANT: This is the version you will be graded on
@@ -163,9 +206,96 @@ void naive_smooth(int dim, pixel *src, pixel *dst)
 char smooth_descr[] = "smooth: Current working version";
 void smooth(int dim, pixel *src, pixel *dst) 
 {
-    naive_smooth(dim, src, dst);
-}
+    pixel32_t sum, left, mid, right;
+    pixel32_init(&sum);
+    pixel32_init(&left);
+    pixel32_init(&mid);
 
+    // top left corner
+    pixel32_add_pixel(&left, &src[RIDX(0, 0, dim)]);
+    pixel32_add_pixel(&mid, &src[RIDX(0, 1, dim)]);
+    pixel32_add_pixel(&left, &src[RIDX(1, 0, dim)]);
+    pixel32_add_pixel(&mid, &src[RIDX(1, 1, dim)]);
+    pixel32_add(&sum, &left);
+    pixel32_add(&sum, &mid);
+    pixel32_to_pixel(&sum, &dst[RIDX(0, 0, dim)], 4);
+
+    // top edge
+    for (int j = 1; j < dim - 1; j++) {
+        pixel32_init(&right);
+        pixel32_add_pixel(&right, &src[RIDX(0, j + 1, dim)]);
+        pixel32_add_pixel(&right, &src[RIDX(1, j + 1, dim)]);
+        pixel32_add(&sum, &right);
+        pixel32_to_pixel(&sum, &dst[RIDX(0, j, dim)], 6);
+        pixel32_sub(&sum, &left);
+        left = mid;
+        mid = right;
+    }
+
+    // top right corner
+    pixel32_to_pixel(&sum, &dst[RIDX(0, dim - 1, dim)], 4);
+
+    for (int i = 1; i < dim - 1; i++) {
+        pixel32_init(&sum);
+        pixel32_init(&left);
+        pixel32_init(&mid);
+
+        // left edge
+        pixel32_add_pixel(&left, &src[RIDX(i - 1, 0, dim)]);
+        pixel32_add_pixel(&mid, &src[RIDX(i - 1, 1, dim)]);
+        pixel32_add_pixel(&left, &src[RIDX(i, 0, dim)]);
+        pixel32_add_pixel(&mid, &src[RIDX(i, 1, dim)]);
+        pixel32_add_pixel(&left, &src[RIDX(i + 1, 0, dim)]);
+        pixel32_add_pixel(&mid, &src[RIDX(i + 1, 1, dim)]);
+        pixel32_add(&sum, &left);
+        pixel32_add(&sum, &mid);
+        pixel32_to_pixel(&sum, &dst[RIDX(i, 0, dim)], 6);
+
+        // middle pixels
+        for (int j = 1; j < dim - 1; j++) {
+            pixel32_init(&right);
+            pixel32_add_pixel(&right, &src[RIDX(i - 1, j + 1, dim)]);
+            pixel32_add_pixel(&right, &src[RIDX(i, j + 1, dim)]);
+            pixel32_add_pixel(&right, &src[RIDX(i + 1, j + 1, dim)]);
+            pixel32_add(&sum, &right);
+            pixel32_to_pixel(&sum, &dst[RIDX(i, j, dim)], 9);
+            pixel32_sub(&sum, &left);
+            left = mid;
+            mid = right;
+        }
+
+        // right edge
+        pixel32_to_pixel(&sum, &dst[RIDX(i, dim - 1, dim)], 6);
+    }
+
+    pixel32_init(&sum);
+    pixel32_init(&left);
+    pixel32_init(&mid);
+
+    // bottom left corner
+    pixel32_add_pixel(&left, &src[RIDX(dim - 2, 0, dim)]);
+    pixel32_add_pixel(&mid, &src[RIDX(dim - 2, 1, dim)]);
+    pixel32_add_pixel(&left, &src[RIDX(dim - 1, 0, dim)]);
+    pixel32_add_pixel(&mid, &src[RIDX(dim - 1, 1, dim)]);
+    pixel32_add(&sum, &left);
+    pixel32_add(&sum, &mid);
+    pixel32_to_pixel(&sum, &dst[RIDX(dim - 1, 0, dim)], 4);
+
+    // bottom edge
+    for (int j = 1; j < dim - 1; j++) {
+        pixel32_init(&right);
+        pixel32_add_pixel(&right, &src[RIDX(dim - 2, j + 1, dim)]);
+        pixel32_add_pixel(&right, &src[RIDX(dim - 1, j + 1, dim)]);
+        pixel32_add(&sum, &right);
+        pixel32_to_pixel(&sum, &dst[RIDX(dim - 1, j, dim)], 6);
+        pixel32_sub(&sum, &left);
+        left = mid;
+        mid = right;
+    }
+
+    // bottom right corner
+    pixel32_to_pixel(&sum, &dst[RIDX(dim - 1, dim - 1, dim)], 4);
+}
 
 /********************************************************************* 
  * register_smooth_functions - Register all of your different versions
